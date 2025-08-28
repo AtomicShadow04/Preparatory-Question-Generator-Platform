@@ -39,7 +39,6 @@ export default function TestPage() {
   const [submitting, setSubmitting] = useState(false);
   const [results, setResults] = useState<any>(null);
 
-  // Get documentId from URL query params
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const documentId = urlParams.get("documentId");
@@ -91,7 +90,6 @@ export default function TestPage() {
     try {
       setSubmitting(true);
 
-      // Get documentId from URL query params
       const urlParams = new URLSearchParams(window.location.search);
       const documentId = urlParams.get("documentId") || "unknown";
 
@@ -181,6 +179,12 @@ export default function TestPage() {
                 </div>
 
                 <Button onClick={() => setResults(null)}>Retake Test</Button>
+                <Button
+                  className="ml-5"
+                  onClick={() => (window.location.href = "/")}
+                >
+                  Home Page
+                </Button>
               </div>
             </CardContent>
           </Card>
