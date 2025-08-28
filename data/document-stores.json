@@ -1,0 +1,30 @@
+{
+  "doc_1756383220472_sample-document.txt": {
+    "id": "doc_1756383220472_sample-document.txt",
+    "originalContent": "Introduction to Computer Science\r\n\r\nComputer science is the study of computers and computational systems. Unlike electrical and computer engineers, computer scientists deal mostly with software and software systems; this includes their theory, design, development, and application.\r\n\r\nKey areas of computer science include:\r\n1. Artificial Intelligence - The development of intelligent machines that can perform tasks requiring human intelligence\r\n2. Data Science - Extracting knowledge and insights from structured and unstructured data\r\n3. Cybersecurity - Protecting computer systems and networks from information disclosure, theft, or damage\r\n4. Software Engineering - Applying engineering principles to software development\r\n5. Computer Graphics - Creating visual content using computers\r\n\r\nProgramming languages commonly used in computer science include Python, Java, C++, and JavaScript. Each language has its own strengths and is suited for different types of applications.\r\n\r\nThe field of computer science continues to evolve rapidly, with new technologies and methodologies emerging regularly. Professionals in this field need to be lifelong learners to keep up with these changes.",
+    "metadata": {
+      "fileName": "sample-document.txt",
+      "uploadDate": "2025-08-28T12:13:40.473Z",
+      "chunkCount": 1
+    }
+  },
+  "doc_1756400522738_sample-document.txt": {
+    "id": "doc_1756400522738_sample-document.txt",
+    "vectorStore": {
+      "lc": 1,
+      "type": "not_implemented",
+      "id": [
+        "langchain",
+        "vectorstores",
+        "memory",
+        "MemoryVectorStore"
+      ]
+    },
+    "originalContent": "Introduction to Computer Science\r\n\r\nComputer science is the study of computers and computational systems. Unlike electrical and computer engineers, computer scientists deal mostly with software and software systems; this includes their theory, design, development, and application.\r\n\r\nKey areas of computer science include:\r\n1. Artificial Intelligence - The development of intelligent machines that can perform tasks requiring human intelligence\r\n2. Data Science - Extracting knowledge and insights from structured and unstructured data\r\n3. Cybersecurity - Protecting computer systems and networks from information disclosure, theft, or damage\r\n4. Software Engineering - Applying engineering principles to software development\r\n5. Computer Graphics - Creating visual content using computers\r\n\r\nProgramming languages commonly used in computer science include Python, Java, C++, and JavaScript. Each language has its own strengths and is suited for different types of applications.\nProgramming languages commonly used in computer science include Python, Java, C++, and JavaScript. Each language has its own strengths and is suited for different types of applications.\r\n\r\nThe field of computer science continues to evolve rapidly, with new technologies and methodologies emerging regularly. Professionals in this field need to be lifelong learners to keep up with these changes.",
+    "metadata": {
+      "fileName": "sample-document.txt",
+      "uploadDate": "2025-08-28T17:02:04.579Z",
+      "chunkCount": 2
+    }
+  }
+}
