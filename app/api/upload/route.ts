@@ -89,7 +89,6 @@ class DocumentProcessor {
       return data.text;
     } catch (error) {
       console.error("PDF parsing error:", error);
-      // Fallback: try to read the file as text if PDF parsing fails
       try {
         console.log("Trying fallback text extraction...");
         return fs.readFileSync(filePath, "utf-8");
@@ -174,7 +173,6 @@ export async function POST(request: NextRequest) {
   try {
     console.log("Upload endpoint called");
 
-    // Check if OpenAI API key is configured
     if (!process.env.OPENAI_API_KEY) {
       console.error("OpenAI API key is not configured");
       return NextResponse.json(
@@ -185,7 +183,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get form data
     const formData = await request.formData();
     const file = formData.get("file") as File;
 
@@ -197,8 +194,6 @@ export async function POST(request: NextRequest) {
     console.log(
       `File received: ${file.name}, size: ${file.size}, type: ${file.type}`
     );
-
-    // Validate file type
     const allowedTypes = [
       "application/pdf",
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -217,7 +212,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate file size (10MB limit)
     if (file.size > 10 * 1024 * 1024) {
       console.error(`File size too large: ${file.size} bytes`);
       return NextResponse.json(
@@ -228,18 +222,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Save file temporarily
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
-    // Create uploads directory if it doesn't exist
     const uploadsDir = path.join(process.cwd(), "uploads");
     if (!fs.existsSync(uploadsDir)) {
       console.log("Creating uploads directory");
       fs.mkdirSync(uploadsDir, { recursive: true });
     }
 
-    // Generate a unique filename to avoid conflicts
     const timestamp = Date.now();
     const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_");
     const filePath = path.join(uploadsDir, `${timestamp}_${safeName}`);
@@ -262,8 +253,6 @@ export async function POST(request: NextRequest) {
         documentId,
         file.name
       );
-
-      // Clean up temporary file
       console.log("Cleaning up temporary file");
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
@@ -281,7 +270,6 @@ export async function POST(request: NextRequest) {
       console.log("Upload successful:", response);
       return NextResponse.json(response);
     } catch (processingError) {
-      // Clean up temporary file even if processing fails
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
       }

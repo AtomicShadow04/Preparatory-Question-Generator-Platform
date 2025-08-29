@@ -77,7 +77,6 @@ Output Format Example:
     question: Question,
     userAnswer: string
   ): Promise<GradingResult> {
-    // Validate inputs
     if (!question) {
       return {
         questionId: "unknown",
@@ -125,7 +124,6 @@ Output Format Example:
     question: Question,
     userAnswer: string
   ): GradingResult {
-    // Validate that we have a correct answer
     if (!question.correctAnswer) {
       return {
         questionId: question.id,
@@ -167,7 +165,6 @@ Output Format Example:
       };
     }
 
-    // Handle empty answers
     if (!userAnswer || userAnswer.trim() === "") {
       return {
         questionId: question.id,
@@ -189,7 +186,6 @@ Output Format Example:
       if (correctSet.has(ans)) correctCount++;
     });
 
-    // Avoid division by zero
     const precision =
       userSelections.length > 0 ? correctCount / userSelections.length : 0;
     const recall = correctSet.size > 0 ? correctCount / correctSet.size : 0;
@@ -198,7 +194,7 @@ Output Format Example:
       precision + recall > 0
         ? (2 * precision * recall) / (precision + recall)
         : 0;
-    const score = Math.min(Math.round(f1Score * 10) / 10, 1); // max 1 point, rounded to 1 decimal
+    const score = Math.min(Math.round(f1Score * 10) / 10, 1);
 
     return {
       questionId: question.id,
@@ -214,7 +210,6 @@ Output Format Example:
     userAnswer: string
   ): Promise<GradingResult> {
     try {
-      // Handle empty answers
       if (!userAnswer || userAnswer.trim() === "") {
         return {
           questionId: question.id,
@@ -248,7 +243,6 @@ Output Format Example:
         answer: userAnswer,
       });
 
-      // Clean up the response to ensure valid JSON
       let cleanedResponse = response.trim();
       if (cleanedResponse.startsWith("```json")) {
         cleanedResponse = cleanedResponse.substring(7);
@@ -260,7 +254,6 @@ Output Format Example:
         );
       }
 
-      // Try to parse the JSON
       let result;
       try {
         result = JSON.parse(cleanedResponse);
@@ -300,7 +293,6 @@ Output Format Example:
     maxPossibleScore: number;
     percentage: number;
   } {
-    // Handle empty results
     if (!gradingResults || gradingResults.length === 0) {
       return { totalScore: 0, maxPossibleScore: 0, percentage: 0 };
     }
@@ -318,45 +310,29 @@ Output Format Example:
 }
 
 class ScoreComparison {
-  static analyzePerformance(
-    aiTestResult: TestResult,
-    realWorldScore?: number
-  ): {
+  static analyzePerformance(aiTestResult: TestResult): {
     correlation: string;
     analysis: string;
     recommendations: string[];
   } {
-    if (!realWorldScore) {
-      return {
-        correlation: "No real-world score provided",
-        analysis: `AI assessment score: ${aiTestResult.percentage.toFixed(1)}%`,
-        recommendations: [
-          "Take a real assessment to compare results",
-          "Continue studying the material",
-          "Review areas where you scored lower",
-        ],
-      };
-    }
-
     const aiScore = aiTestResult.percentage;
-    const difference = Math.abs(aiScore - realWorldScore);
 
     let correlation: string;
     let analysis: string;
     const recommendations: string[] = [];
 
-    if (difference <= 5) {
+    if (aiScore <= 5) {
       correlation = "Excellent correlation";
-      analysis = `AI assessment closely matches real-world performance (${difference.toFixed(
+      analysis = `AI assessment closely matches real-world performance (${aiScore.toFixed(
         1
       )}% difference)`;
       recommendations.push(
         "The AI assessment is accurately measuring your knowledge"
       );
       recommendations.push("Continue with your current study approach");
-    } else if (difference <= 15) {
+    } else if (aiScore <= 15) {
       correlation = "Good correlation";
-      analysis = `AI assessment shows good alignment with real-world performance (${difference.toFixed(
+      analysis = `AI assessment shows good alignment with real-world performance (${aiScore.toFixed(
         1
       )}% difference)`;
       recommendations.push(
@@ -365,13 +341,13 @@ class ScoreComparison {
       recommendations.push(
         "Focus on areas where you struggled in both assessments"
       );
-    } else if (difference <= 25) {
+    } else if (aiScore <= 25) {
       correlation = "Moderate correlation";
-      analysis = `AI assessment shows some alignment with real-world performance (${difference.toFixed(
+      analysis = `AI assessment shows some alignment with real-world performance (${aiScore.toFixed(
         1
       )}% difference)`;
 
-      if (aiScore > realWorldScore) {
+      if (aiScore > 50) {
         recommendations.push(
           "AI test may be easier - focus more on practical application"
         );
@@ -386,7 +362,7 @@ class ScoreComparison {
       }
     } else {
       correlation = "Poor correlation";
-      analysis = `Significant difference between AI and real-world scores (${difference.toFixed(
+      analysis = `Significant difference between AI and real-world scores (${aiScore.toFixed(
         1
       )}% difference)`;
       recommendations.push(
@@ -423,7 +399,6 @@ class ScoreComparison {
 
 export async function POST(request: NextRequest) {
   try {
-    // Check if OpenAI API key is configured
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json(
         {
@@ -436,7 +411,6 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { userId, testId, questions, answers, realWorldScore } = body;
 
-    // Validate required fields
     if (!userId) {
       return NextResponse.json(
         { error: "User ID is required" },
@@ -464,8 +438,6 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-
-    // Validate that we have questions to grade
     if (questions.length === 0) {
       return NextResponse.json(
         {
@@ -500,10 +472,7 @@ export async function POST(request: NextRequest) {
       completedAt: new Date(),
     };
 
-    const comparison = ScoreComparison.analyzePerformance(
-      testResult,
-      realWorldScore
-    );
+    const comparison = ScoreComparison.analyzePerformance(testResult);
 
     return NextResponse.json({
       testResult,

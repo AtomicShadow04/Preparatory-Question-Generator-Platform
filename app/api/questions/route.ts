@@ -65,7 +65,6 @@ Output Format Example:
     count: number = 10
   ): Promise<any[]> {
     try {
-      // Validate inputs
       if (!documentId) {
         throw new Error("Document ID is required");
       }
@@ -98,7 +97,6 @@ Output Format Example:
         count,
       });
 
-      // Clean up the response to ensure valid JSON
       let cleanedResponse = response.trim();
       if (cleanedResponse.startsWith("```json")) {
         cleanedResponse = cleanedResponse.substring(7);
@@ -110,7 +108,6 @@ Output Format Example:
         );
       }
 
-      // Try to parse the JSON
       let result;
       try {
         result = JSON.parse(cleanedResponse);
@@ -120,7 +117,6 @@ Output Format Example:
         throw new Error("Failed to parse questions from AI response");
       }
 
-      // Validate the structure
       if (!result.questions || !Array.isArray(result.questions)) {
         throw new Error("Invalid response format from AI");
       }
@@ -141,7 +137,6 @@ Output Format Example:
 
 export async function POST(request: NextRequest) {
   try {
-    // Check if OpenAI API key is configured
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json(
         {
@@ -161,7 +156,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate count parameter
     const questionCount = parseInt(count as any);
     if (isNaN(questionCount) || questionCount <= 0 || questionCount > 50) {
       return NextResponse.json(
