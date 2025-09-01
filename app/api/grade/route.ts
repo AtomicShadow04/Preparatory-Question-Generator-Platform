@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { OpenAI } from "@langchain/openai";
+import { ChatOpenAI } from "@langchain/openai";
 import { PromptTemplate } from "@langchain/core/prompts";
-import { RunnableSequence } from "@langchain/core/runnables";
 import { StringOutputParser } from "@langchain/core/output_parsers";
 
 interface Question {
@@ -16,14 +15,14 @@ interface Question {
   options?: string[];
   correctAnswer?: string;
   correctAnswers?: string[];
-  rubric?: string;
   difficulty: "easy" | "medium" | "hard";
+  weight: number;
+  scale?: string;
 }
 
 interface UserAnswer {
   questionId: string;
   answer: string;
-  timestamp?: Date;
 }
 
 interface GradingResult {
@@ -34,366 +33,291 @@ interface GradingResult {
   isCorrect: boolean;
 }
 
-interface TestResult {
-  userId: string;
-  testId: string;
-  totalScore: number;
-  maxPossibleScore: number;
-  percentage: number;
-  gradingResults: GradingResult[];
-  completedAt: Date;
-}
+// Function to calculate score for a single question
+function calculateScore(
+  question: Question,
+  userAnswer: UserAnswer
+): { score: number; maxScore: number; isCorrect: boolean } {
+  // Validate inputs
+  if (!question || !userAnswer) {
+    return { score: 0, maxScore: 1, isCorrect: false };
+  }
 
-class GradingService {
-  private static gradingPrompt = PromptTemplate.fromTemplate(`
-Grade the following student answer based on the question, type, and rubric provided.
+  const maxScore = Math.max(1, question.weight || 1); // Ensure maxScore is at least 1
 
-Requirements:
-- Provide a detailed evaluation explaining the reasoning for the score.
-- Scoring rules:
-  - yes-no: Score 1 for correct, 0 for incorrect
-  - multiple-choice-single: Score 1 for correct, 0 for incorrect
-  - multiple-choice-multi: Score based on the proportion of correct answers selected (max 1 point)
-  - scale: Score out of 5 points based on how well the explanation aligns with the rubric
-  - rating: Score out of 5 points based on justification and completeness
-- Feedback should be constructive, specific, and explain what was done well and what could be improved.
-- Output must be a valid JSON object in the format below.
-
-Question: {question}
-Type: {type}
-Rubric: {rubric}
-Student Answer: {answer}
-
-Output Format Example:
-{
-  "score": 4,
-  "maxScore": 5,
-  "feedback": "The student identified key elements correctly but missed deeper explanation. Next time, provide more detail on how ratios link to strategic analysis.",
-  "isCorrect": true
-}
-`);
-
-  static async gradeAnswer(
-    question: Question,
-    userAnswer: string
-  ): Promise<GradingResult> {
-    if (!question) {
-      return {
-        questionId: "unknown",
-        score: 0,
-        maxScore: 1,
-        feedback: "Invalid question provided.",
-        isCorrect: false,
-      };
-    }
-
-    if (userAnswer === undefined || userAnswer === null) {
-      return {
-        questionId: question.id,
-        score: 0,
-        maxScore: 1,
-        feedback: "No answer provided.",
-        isCorrect: false,
-      };
+  // For questions with correct answers
+  if (question.correctAnswer || question.correctAnswers) {
+    // Handle case where user didn't provide an answer
+    if (!userAnswer.answer) {
+      return { score: 0, maxScore, isCorrect: false };
     }
 
     switch (question.type) {
       case "yes-no":
       case "multiple-choice-single":
-        return this.gradeSingleChoice(question, userAnswer);
-
-      case "multiple-choice-multi":
-        return this.gradeMultiChoice(question, userAnswer);
-
       case "scale":
       case "rating":
-        return await this.gradeOpenEnded(question, userAnswer);
+        // Handle case where correctAnswer is not defined
+        if (!question.correctAnswer) {
+          return { score: 0, maxScore, isCorrect: false };
+        }
+
+        const correct =
+          (typeof question.correctAnswer === "string"
+            ? question.correctAnswer.toLowerCase()
+            : "") ===
+          (typeof userAnswer.answer === "string"
+            ? userAnswer.answer.toLowerCase()
+            : "");
+        return {
+          score: correct ? maxScore : 0,
+          maxScore,
+          isCorrect: correct,
+        };
+
+      case "multiple-choice-multi":
+        // For multi-select, partial credit is possible
+        const correctAnswers = Array.isArray(question.correctAnswers)
+          ? question.correctAnswers
+          : question.correctAnswer
+          ? [question.correctAnswer]
+          : [];
+
+        // Handle case where there are no correct answers defined
+        if (correctAnswers.length === 0) {
+          return { score: 0, maxScore, isCorrect: false };
+        }
+
+        const userAnswers = userAnswer.answer.split(",").map((a) => a.trim());
+
+        const correctCount = userAnswers.filter((answer) => {
+          // Ensure answer is a string before calling toLowerCase
+          const normalizedAnswer =
+            typeof answer === "string" ? answer.toLowerCase() : "";
+
+          return correctAnswers.some((correct) => {
+            // Ensure correct is a string before calling toLowerCase
+            const normalizedCorrect =
+              typeof correct === "string" ? correct.toLowerCase() : "";
+            return normalizedCorrect === normalizedAnswer;
+          });
+        }).length;
+
+        const incorrectCount = userAnswers.length - correctCount;
+        const score = Math.max(
+          0,
+          (correctCount * maxScore) / correctAnswers.length -
+            (incorrectCount * maxScore) / correctAnswers.length
+        );
+
+        return {
+          score: Math.round(score * 100) / 100, // Round to 2 decimal places
+          maxScore,
+          isCorrect: score === maxScore,
+        };
 
       default:
-        return {
-          questionId: question.id,
-          score: 0,
-          maxScore: 1,
-          feedback: "Unsupported question type.",
-          isCorrect: false,
-        };
+        // Handle unknown question types
+        return { score: 0, maxScore, isCorrect: false };
     }
   }
 
-  private static gradeSingleChoice(
-    question: Question,
-    userAnswer: string
-  ): GradingResult {
-    if (!question.correctAnswer) {
-      return {
-        questionId: question.id,
-        score: 0,
-        maxScore: 1,
-        feedback: "No correct answer defined for this question.",
-        isCorrect: false,
-      };
-    }
+  // For questions without predefined correct answers, return full score
+  return {
+    score: maxScore,
+    maxScore,
+    isCorrect: true,
+  };
+}
 
-    const isCorrect =
-      userAnswer.trim().toLowerCase() ===
-      question.correctAnswer?.trim().toLowerCase();
-
-    return {
-      questionId: question.id,
-      score: isCorrect ? 1 : 0,
-      maxScore: 1,
-      feedback: isCorrect
-        ? "Correct!"
-        : `Incorrect. The correct answer is: ${question.correctAnswer}`,
-      isCorrect,
-    };
+// Function to generate feedback using AI
+async function generateFeedback(
+  question: Question,
+  userAnswer: UserAnswer,
+  score: number,
+  maxScore: number
+): Promise<string> {
+  // Validate inputs
+  if (!question || !userAnswer) {
+    return "Unable to generate feedback due to missing data.";
   }
 
-  private static gradeMultiChoice(
-    question: Question,
-    userAnswer: string
-  ): GradingResult {
-    const correctAnswers: string[] = question.correctAnswers || [];
-
-    if (!Array.isArray(correctAnswers) || correctAnswers.length === 0) {
-      return {
-        questionId: question.id,
-        score: 0,
-        maxScore: 1,
-        feedback: "No correct answers provided for this question.",
-        isCorrect: false,
-      };
+  try {
+    // Check if OpenAI API key is configured
+    if (!process.env.OPENAI_API_KEY) {
+      // Fallback feedback when API key is not configured
+      if (score === maxScore) {
+        return "Great job! Your answer is correct.";
+      } else {
+        return "Good effort. Review the material to improve your understanding.";
+      }
     }
 
-    if (!userAnswer || userAnswer.trim() === "") {
-      return {
-        questionId: question.id,
-        score: 0,
-        maxScore: 1,
-        feedback: "No answer provided.",
-        isCorrect: false,
-      };
-    }
-
-    const userSelections = userAnswer
-      .split(",")
-      .map((ans) => ans.trim().toLowerCase());
-
-    const correctSet = new Set(correctAnswers.map((ans) => ans.toLowerCase()));
-
-    let correctCount = 0;
-    userSelections.forEach((ans) => {
-      if (correctSet.has(ans)) correctCount++;
+    const llm = new ChatOpenAI({
+      openAIApiKey: process.env.OPENAI_API_KEY,
+      modelName: "gpt-4o-mini",
+      temperature: 0.3,
     });
 
-    const precision =
-      userSelections.length > 0 ? correctCount / userSelections.length : 0;
-    const recall = correctSet.size > 0 ? correctCount / correctSet.size : 0;
+    const feedbackPrompt = PromptTemplate.fromTemplate(`
+      You are an educational feedback generator. Provide constructive feedback for a student's answer to a question.
+      
+      Question: {question}
+      Question Type: {type}
+      Correct Answer: {correctAnswer}
+      Student's Answer: {userAnswer}
+      Score Achieved: {score} out of {maxScore}
+      
+      Provide brief, helpful feedback that:
+      1. Acknowledges what the student did well if they scored points
+      2. Gently corrects any misconceptions if they lost points
+      3. Encourages learning and improvement
+      4. Is appropriate for the question type and difficulty level
+      
+      Keep your feedback concise (1-2 sentences).
+    `);
 
-    const f1Score =
-      precision + recall > 0
-        ? (2 * precision * recall) / (precision + recall)
-        : 0;
-    const score = Math.min(Math.round(f1Score * 10) / 10, 1);
+    const parser = new StringOutputParser();
+    const chain = feedbackPrompt.pipe(llm).pipe(parser);
 
-    return {
-      questionId: question.id,
-      score: Math.min(score, 1),
-      maxScore: 1,
-      feedback: `You selected ${correctCount} correct options out of ${correctSet.size} total correct options.`,
-      isCorrect: score === 1,
-    };
-  }
+    const correctAnswer =
+      question.correctAnswer ||
+      (question.correctAnswers ? question.correctAnswers.join(", ") : "N/A");
 
-  private static async gradeOpenEnded(
-    question: Question,
-    userAnswer: string
-  ): Promise<GradingResult> {
-    try {
-      if (!userAnswer || userAnswer.trim() === "") {
-        return {
-          questionId: question.id,
-          score: 0,
-          maxScore: 5,
-          feedback: "No answer provided.",
-          isCorrect: false,
-        };
-      }
+    const feedback = await chain.invoke({
+      question: question.question || "Unknown question",
+      type: question.type || "unknown",
+      correctAnswer,
+      userAnswer: userAnswer.answer || "No answer provided",
+      score: score.toString(),
+      maxScore: maxScore.toString(),
+    });
 
-      const maxScore = 5;
-
-      const llm = new OpenAI({
-        openAIApiKey: process.env.OPENAI_API_KEY!,
-        modelName: "gpt-4",
-        temperature: 0.2,
-      });
-
-      const chain = RunnableSequence.from([
-        this.gradingPrompt,
-        llm,
-        new StringOutputParser(),
-      ]);
-
-      const response = await chain.invoke({
-        question: question.question,
-        type: question.type,
-        rubric:
-          question.rubric ||
-          "Grade based on accuracy, completeness, justification, and depth of understanding.",
-        answer: userAnswer,
-      });
-
-      let cleanedResponse = response.trim();
-      if (cleanedResponse.startsWith("```json")) {
-        cleanedResponse = cleanedResponse.substring(7);
-      }
-      if (cleanedResponse.endsWith("```")) {
-        cleanedResponse = cleanedResponse.substring(
-          0,
-          cleanedResponse.length - 3
-        );
-      }
-
-      let result;
-      try {
-        result = JSON.parse(cleanedResponse);
-      } catch (parseError) {
-        console.error("JSON parsing error:", parseError);
-        console.error("Raw response:", response);
-        return {
-          questionId: question.id,
-          score: 0,
-          maxScore: 5,
-          feedback: "Unable to parse AI response. Please try again.",
-          isCorrect: false,
-        };
-      }
-
-      return {
-        questionId: question.id,
-        score: Math.min(result.score, maxScore),
-        maxScore,
-        feedback: result.feedback,
-        isCorrect: result.score >= maxScore * 0.7,
-      };
-    } catch (error) {
-      console.error("Error grading open-ended answer:", error);
-      return {
-        questionId: question.id,
-        score: 0,
-        maxScore: 5,
-        feedback: "Unable to grade this answer. Please try again.",
-        isCorrect: false,
-      };
+    return feedback.trim() || "No feedback available.";
+  } catch (error) {
+    console.error("Error generating feedback:", error);
+    // Fallback feedback
+    if (score === maxScore) {
+      return "Great job! Your answer is correct.";
+    } else {
+      return "Good effort. Review the material to improve your understanding.";
     }
-  }
-
-  static calculateOverallScore(gradingResults: GradingResult[]): {
-    totalScore: number;
-    maxPossibleScore: number;
-    percentage: number;
-  } {
-    if (!gradingResults || gradingResults.length === 0) {
-      return { totalScore: 0, maxPossibleScore: 0, percentage: 0 };
-    }
-
-    const totalScore = gradingResults.reduce((sum, r) => sum + r.score, 0);
-    const maxPossibleScore = gradingResults.reduce(
-      (sum, r) => sum + r.maxScore,
-      0
-    );
-    const percentage =
-      maxPossibleScore > 0 ? (totalScore / maxPossibleScore) * 100 : 0;
-
-    return { totalScore, maxPossibleScore, percentage };
   }
 }
 
-class ScoreComparison {
-  static analyzePerformance(aiTestResult: TestResult): {
-    correlation: string;
-    analysis: string;
-    recommendations: string[];
-  } {
-    const aiScore = aiTestResult.percentage;
+// Function to generate overall test comparison using AI
+async function generateComparison(
+  questions: Question[],
+  answers: UserAnswer[],
+  gradingResults: GradingResult[]
+): Promise<{
+  correlation: string;
+  analysis: string;
+  recommendations: string[];
+}> {
+  try {
+    const llm = new ChatOpenAI({
+      openAIApiKey: process.env.OPENAI_API_KEY!,
+      modelName: "gpt-4o-mini",
+      temperature: 0.3,
+    });
 
-    let correlation: string;
-    let analysis: string;
-    const recommendations: string[] = [];
-
-    if (aiScore <= 5) {
-      correlation = "Excellent correlation";
-      analysis = `AI assessment closely matches real-world performance (${aiScore.toFixed(
-        1
-      )}% difference)`;
-      recommendations.push(
-        "The AI assessment is accurately measuring your knowledge"
-      );
-      recommendations.push("Continue with your current study approach");
-    } else if (aiScore <= 15) {
-      correlation = "Good correlation";
-      analysis = `AI assessment shows good alignment with real-world performance (${aiScore.toFixed(
-        1
-      )}% difference)`;
-      recommendations.push(
-        "Minor discrepancies may be due to question style differences"
-      );
-      recommendations.push(
-        "Focus on areas where you struggled in both assessments"
-      );
-    } else if (aiScore <= 25) {
-      correlation = "Moderate correlation";
-      analysis = `AI assessment shows some alignment with real-world performance (${aiScore.toFixed(
-        1
-      )}% difference)`;
-
-      if (aiScore > 50) {
-        recommendations.push(
-          "AI test may be easier - focus more on practical application"
-        );
-        recommendations.push(
-          "Practice with more challenging real-world scenarios"
-        );
-      } else {
-        recommendations.push(
-          "AI test may be harder - you might perform better in real scenarios"
-        );
-        recommendations.push("Build confidence through additional practice");
+    const comparisonPrompt = PromptTemplate.fromTemplate(`
+      You are an educational assessment expert. Analyze a student's test performance and provide insights.
+      
+      Questions and Answers:
+      {qaPairs}
+      
+      Grading Results:
+      {gradingResults}
+      
+      Total Score: {totalScore} out of {maxScore}
+      Percentage: {percentage}%
+      
+      Provide:
+      1. A brief correlation analysis (1 sentence) between question difficulty and student performance
+      2. A detailed performance analysis (2-3 sentences) highlighting strengths and areas for improvement
+      3. 3 specific, actionable recommendations for improvement
+      
+      Format your response as JSON:
+      {
+        "correlation": "string",
+        "analysis": "string",
+        "recommendations": ["string", "string", "string"]
       }
-    } else {
-      correlation = "Poor correlation";
-      analysis = `Significant difference between AI and real-world scores (${aiScore.toFixed(
-        1
-      )}% difference)`;
-      recommendations.push(
-        "Consider reviewing the study material and testing approach"
-      );
-      recommendations.push(
-        "The AI assessment may not fully capture the real-world test format"
-      );
-      recommendations.push("Seek additional resources or tutoring");
-    }
+    `);
 
-    if (aiScore < 60) {
-      recommendations.push(
-        "Focus on fundamental concepts - review the source material thoroughly"
-      );
-      recommendations.push(
-        "Consider breaking down complex topics into smaller sections"
-      );
-    } else if (aiScore < 80) {
-      recommendations.push(
-        "Good foundation - work on more challenging aspects of the material"
-      );
-      recommendations.push("Practice applying concepts in different contexts");
-    } else {
-      recommendations.push(
-        "Excellent understanding - consider advanced topics in this area"
-      );
-      recommendations.push("Help others to reinforce your knowledge");
-    }
+    const parser = new StringOutputParser();
+    const chain = comparisonPrompt.pipe(llm).pipe(parser);
 
-    return { correlation, analysis, recommendations };
+    // Prepare data for the prompt
+    const qaPairs = questions
+      .map((q) => {
+        const answer = answers.find((a) => a.questionId === q.id);
+        return `Q: ${q.question}\nA: ${answer?.answer || "No answer"}\nType: ${
+          q.type
+        }\nDifficulty: ${q.difficulty}`;
+      })
+      .join("\n\n");
+
+    const totalScore = gradingResults.reduce(
+      (sum, result) => sum + result.score,
+      0
+    );
+    const maxScore = gradingResults.reduce(
+      (sum, result) => sum + result.maxScore,
+      0
+    );
+    const percentage =
+      maxScore > 0 ? Math.round((totalScore / maxScore) * 1000) / 10 : 0;
+
+    const response = await chain.invoke({
+      qaPairs,
+      gradingResults: JSON.stringify(gradingResults, null, 2),
+      totalScore: totalScore.toString(),
+      maxScore: maxScore.toString(),
+      percentage: percentage.toString(),
+    });
+
+    // Clean and parse the response
+    const cleanedResponse = response.replace(/```json|```/g, "").trim();
+
+    try {
+      const result = JSON.parse(cleanedResponse);
+      return {
+        correlation: result.correlation || "N/A",
+        analysis: result.analysis || "No analysis available.",
+        recommendations: Array.isArray(result.recommendations)
+          ? result.recommendations
+          : [
+              "Review the material regularly",
+              "Practice more questions",
+              "Seek help on difficult topics",
+            ],
+      };
+    } catch (parseError) {
+      console.error("Error parsing comparison response:", parseError);
+      return {
+        correlation: "N/A",
+        analysis: "Performance analysis could not be generated.",
+        recommendations: [
+          "Review the material regularly",
+          "Practice more questions",
+          "Seek help on difficult topics",
+        ],
+      };
+    }
+  } catch (error) {
+    console.error("Error generating comparison:", error);
+    return {
+      correlation: "N/A",
+      analysis: "Performance analysis could not be generated due to an error.",
+      recommendations: [
+        "Review the material regularly",
+        "Practice more questions",
+        "Seek help on difficult topics",
+      ],
+    };
   }
 }
 
@@ -401,83 +325,143 @@ export async function POST(request: NextRequest) {
   try {
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json(
-        {
-          error: "OpenAI API key is not configured",
-        },
+        { error: "OpenAI API key is not configured" },
         { status: 500 }
       );
     }
 
     const body = await request.json();
-    const { userId, testId, questions, answers, realWorldScore } = body;
 
-    if (!userId) {
+    // Validate body structure
+    if (!body || typeof body !== "object") {
       return NextResponse.json(
-        { error: "User ID is required" },
+        { error: "Invalid request body" },
         { status: 400 }
       );
     }
 
-    if (!testId) {
+    const { questions, answers } = body;
+
+    // Validate questions and answers arrays
+    if (!Array.isArray(questions) || !Array.isArray(answers)) {
       return NextResponse.json(
-        { error: "Test ID is required" },
+        { error: "Questions and answers must be arrays" },
         { status: 400 }
       );
     }
 
-    if (!questions || !Array.isArray(questions)) {
-      return NextResponse.json(
-        { error: "Questions array is required" },
-        { status: 400 }
-      );
-    }
-
-    if (!answers || !Array.isArray(answers)) {
-      return NextResponse.json(
-        { error: "Answers array is required" },
-        { status: 400 }
-      );
-    }
+    // Validate that questions array is not empty
     if (questions.length === 0) {
       return NextResponse.json(
-        {
-          error: "No questions provided for grading",
-        },
+        { error: "At least one question is required" },
         { status: 400 }
       );
     }
 
-    const gradingResults: GradingResult[] = [];
-
-    for (const answer of answers as UserAnswer[]) {
-      const question = questions.find(
-        (q: Question) => q.id === answer.questionId
-      );
-      if (question) {
-        const result = await GradingService.gradeAnswer(
-          question,
-          answer.answer
+    // Validate question structure
+    for (const question of questions) {
+      if (
+        !question ||
+        typeof question !== "object" ||
+        !question.id ||
+        !question.type ||
+        !question.question
+      ) {
+        return NextResponse.json(
+          { error: "Invalid question structure" },
+          { status: 400 }
         );
-        gradingResults.push(result);
       }
     }
 
-    const overallScore = GradingService.calculateOverallScore(gradingResults);
+    // Validate answer structure
+    for (const answer of answers) {
+      if (
+        !answer ||
+        typeof answer !== "object" ||
+        !answer.questionId ||
+        typeof answer.answer !== "string"
+      ) {
+        return NextResponse.json(
+          { error: "Invalid answer structure" },
+          { status: 400 }
+        );
+      }
+    }
 
-    const testResult: TestResult = {
-      userId,
-      testId,
-      ...overallScore,
-      gradingResults,
-      completedAt: new Date(),
-    };
+    // Grade each question
+    const gradingResults: GradingResult[] = [];
 
-    const comparison = ScoreComparison.analyzePerformance(testResult);
+    for (const question of questions) {
+      const userAnswer = answers.find(
+        (a: UserAnswer) => a.questionId === question.id
+      );
 
+      if (!userAnswer) {
+        // No answer provided for this question
+        gradingResults.push({
+          questionId: question.id,
+          score: 0,
+          maxScore: question.weight || 1,
+          feedback: "No answer provided",
+          isCorrect: false,
+        });
+        continue;
+      }
+
+      // Calculate score
+      const { score, maxScore, isCorrect } = calculateScore(
+        question,
+        userAnswer
+      );
+
+      // Generate feedback
+      const feedback = await generateFeedback(
+        question,
+        userAnswer,
+        score,
+        maxScore
+      );
+
+      gradingResults.push({
+        questionId: question.id,
+        score,
+        maxScore,
+        feedback,
+        isCorrect,
+      });
+    }
+
+    // Calculate total scores
+    const totalScore = gradingResults.reduce(
+      (sum, result) => sum + result.score,
+      0
+    );
+    const maxPossibleScore = gradingResults.reduce(
+      (sum, result) => sum + result.maxScore,
+      0
+    );
+    const percentage =
+      maxPossibleScore > 0
+        ? Math.round((totalScore / maxPossibleScore) * 1000) / 10
+        : 0;
+
+    // Generate comparison/analysis
+    const comparison = await generateComparison(
+      questions,
+      answers,
+      gradingResults
+    );
+
+    // Return the response in the format expected by the frontend
     return NextResponse.json({
-      testResult,
+      testResult: {
+        percentage,
+        totalScore,
+        maxPossibleScore,
+        gradingResults,
+      },
       comparison,
-      message: "Test graded successfully",
     });
   } catch (error) {
     console.error("Grading error:", error);

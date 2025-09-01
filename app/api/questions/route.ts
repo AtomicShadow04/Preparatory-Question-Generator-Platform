@@ -1,189 +1,119 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { ChatOpenAI } from "@langchain/openai";
 import { PromptTemplate } from "@langchain/core/prompts";
-import { RunnableSequence } from "@langchain/core/runnables";
 import { StringOutputParser } from "@langchain/core/output_parsers";
 import { VectorStoreService } from "@/lib/document-store";
+import { randomUUID } from "crypto";
 
 class QuestionGenerator {
-  private static questionPrompt =
-    PromptTemplate.fromTemplate(`Based on the following educational content, generate {{count}} diverse questions that test comprehension and understanding.
+  // Reusable prompt template
+  private static readonly questionPrompt = PromptTemplate.fromTemplate(`
+You are a question generator.
+Given the following content section, create a list of diverse question types in **strict JSON format only**.
 
-Requirements:
-- Include these types of questions:
-  - yes-no
-  - multiple-choice-single (4 options, one correct)
-  - multiple-choice-multi (4-6 options, multiple correct)
-  - scale (1-10 self-assessment)
-  - rating (1-5 opinion/perception)
-- Vary the difficulty levels: easy, medium, hard
-- Questions should test understanding, not just memorization
-- Cover different aspects of the content (facts, application, analysis, evaluation)
-- Output must be a valid JSON array in the format below
-
-Content:
+Content Section:
 {content}
 
-Output Format Example:
-{{"questions": [
-  {{
-    "type": "yes-no",
-    "question": "Does the assignment require an individual report?",
-    "correctAnswer": "Yes",
-    "difficulty": "easy"
-  }},
-  {{
-    "type": "multiple-choice-single",
-    "question": "What percentage of the overall grade does the assignment carry?",
-    "options": ["60%", "70%", "80%", "100%"],
-    "correctAnswer": "80%",
-    "difficulty": "easy"
-  }},
-  {{
-    "type": "multiple-choice-multi",
-    "question": "Which items must be included in the appendices?",
-    "options": ["SWOT summary", "Financial statements", "Peer evaluation", "Confirmation statement", "NPV calculation"],
-    "correctAnswers": ["SWOT summary", "Financial statements", "Confirmation statement", "NPV calculation"],
-    "difficulty": "medium"
-  }},
-  {{
-    "type": "scale",
-    "question": "How confident are you in applying SWOT analysis to a business case study?",
-    "scale": "1-10",
-    "difficulty": "medium"
-  }},
-  {{
-    "type": "rating",
-    "question": "Rate the fairness of the lateness penalty policy.",
-    "scale": "1-5",
-    "difficulty": "hard"
-  }}
-]}}`);
+Return JSON in the exact format below (no explanations, no markdown, no text outside JSON):
+Each question MUST include ALL of these fields:
+- type: Must be one of "yes-no", "multiple-choice-single", "multiple-choice-multi", "scale", or "rating"
+- question: The actual question text
+- options: Array of string options (include for multiple-choice and scale questions, omit for yes-no)
+- correctAnswer: The correct answer (optional)
+- difficulty: Must be one of "easy", "medium", or "hard"
+- weight: A number between 1-10 representing the question's importance
 
-  static async generateQuestions(
-    documentId: string,
-    count: number = 10
-  ): Promise<any[]> {
+{{
+  "questions": [
+    {{
+      "type": "yes-no" | "multiple-choice-single" | "multiple-choice-multi" | "scale" | "rating",
+      "question": string,
+      "options": string[] (optional),
+      "correctAnswer": string | string[] (optional),
+      "difficulty": "easy" | "medium" | "hard",
+      "weight": number
+    }}
+  ]
+}}
+`);
+
+  // Generate questions
+  static async generateQuestions(content: string, count: number = 10) {
+    const model = new ChatOpenAI({
+      modelName: "gpt-4o-mini", // lightweight, fast model
+      temperature: 0.3,
+    });
+
+    // Update the prompt to specify the number of questions
+    const updatedContent = `${content}\n\nGenerate exactly ${count} diverse questions based on the content above.`;
+
+    const parser = new StringOutputParser();
+    const chain = this.questionPrompt.pipe(model).pipe(parser);
+
+    const response = await chain.invoke({ content: updatedContent });
+
+    // Clean response (remove markdown code fences if any)
+    const cleanedResponse = response.replace(/```json|```/g, "").trim();
+
+    let result;
     try {
-      if (!documentId) {
-        throw new Error("Document ID is required");
-      }
+      result = JSON.parse(cleanedResponse);
+    } catch (parseError) {
+      console.error("JSON parsing error:", parseError);
+      console.error("Raw response:", response);
 
-      if (count <= 0 || count > 50) {
-        throw new Error("Question count must be between 1 and 50");
-      }
-
-      const store = VectorStoreService.getDocumentStore(documentId);
-      if (!store) {
-        throw new Error("Document not found");
-      }
-
-      const content = store.originalContent.substring(0, 4000);
-
-      const llm = new ChatOpenAI({
-        openAIApiKey: process.env.OPENAI_API_KEY!,
-        modelName: "gpt-4",
-        temperature: 0.7,
-      });
-
-      const chain = RunnableSequence.from([
-        this.questionPrompt,
-        llm,
-        new StringOutputParser(),
-      ]);
-
-      const response = await chain.invoke({
-        content,
-        count,
-      });
-
-      let cleanedResponse = response.trim();
-      if (cleanedResponse.startsWith("```json")) {
-        cleanedResponse = cleanedResponse.substring(7);
-      }
-      if (cleanedResponse.endsWith("```")) {
-        cleanedResponse = cleanedResponse.substring(
-          0,
-          cleanedResponse.length - 3
-        );
-      }
-
-      let result;
-      try {
-        result = JSON.parse(cleanedResponse);
-      } catch (parseError) {
-        console.error("JSON parsing error:", parseError);
-        console.error("Raw response:", response);
-        throw new Error("Failed to parse questions from AI response");
-      }
-
-      if (!result.questions || !Array.isArray(result.questions)) {
-        throw new Error("Invalid response format from AI");
-      }
-
-      return result.questions.map((q: any, index: number) => ({
-        id: `q_${documentId}_${Date.now()}_${index}`,
-        ...q,
-      }));
-    } catch (error) {
-      console.error("Error generating questions:", error);
-      throw new Error(
-        "Failed to generate questions: " +
-          (error instanceof Error ? error.message : "Unknown error")
-      );
+      // fallback
+      result = { questions: [] };
     }
+
+    // Add unique IDs to each question and ensure all required fields are present
+    if (result.questions && Array.isArray(result.questions)) {
+      result.questions = result.questions.map((question: any) => ({
+        // Ensure all required fields are present
+        type: question.type,
+        question: question.question,
+        options: question.options || undefined,
+        correctAnswer: question.correctAnswer || undefined,
+        correctAnswers: question.correctAnswers || undefined,
+        difficulty: question.difficulty || "medium",
+        weight: question.weight || 5, // Default weight if not provided
+        id: randomUUID(),
+      }));
+    }
+
+    return result;
   }
 }
 
-export async function POST(request: NextRequest) {
+// API route
+export async function POST(req: Request) {
   try {
-    if (!process.env.OPENAI_API_KEY) {
-      return NextResponse.json(
-        {
-          error: "OpenAI API key is not configured",
-        },
-        { status: 500 }
-      );
-    }
-
-    const body = await request.json();
-    const { documentId, count = 10 } = body;
-
+    const { documentId, count = 10 } = await req.json();
     if (!documentId) {
       return NextResponse.json(
-        { error: "Document ID is required" },
+        { error: "No documentId provided" },
         { status: 400 }
       );
     }
 
-    const questionCount = parseInt(count as any);
-    if (isNaN(questionCount) || questionCount <= 0 || questionCount > 50) {
+    // Retrieve document content using documentId
+    const documentStore = VectorStoreService.getDocumentStore(documentId);
+    if (!documentStore || !documentStore.originalContent) {
       return NextResponse.json(
-        {
-          error: "Question count must be a number between 1 and 50",
-        },
-        { status: 400 }
+        { error: "Document not found" },
+        { status: 404 }
       );
     }
 
     const questions = await QuestionGenerator.generateQuestions(
-      documentId,
-      questionCount
+      documentStore.originalContent,
+      count
     );
-
-    return NextResponse.json({
-      message: "Questions generated successfully",
-      documentId,
-      questionsGenerated: questions.length,
-      questions,
-    });
+    return NextResponse.json(questions);
   } catch (error) {
-    console.error("Question generation error:", error);
+    console.error("Error in POST /api/questions:", error);
     return NextResponse.json(
-      {
-        error: "Failed to generate questions",
-        details: error instanceof Error ? error.message : "Unknown error",
-      },
+      { error: "Failed to generate questions" },
       { status: 500 }
     );
   }

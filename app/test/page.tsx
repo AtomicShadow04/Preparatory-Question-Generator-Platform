@@ -24,6 +24,7 @@ interface Question {
   correctAnswer?: string;
   correctAnswers?: string[];
   difficulty: "easy" | "medium" | "hard";
+  weight: number;
   scale?: string;
 }
 
@@ -107,9 +108,21 @@ export default function TestPage() {
       });
 
       const data = await response.json();
-      setResults(data);
+
+      // Check if the response is an error
+      if (data.error) {
+        console.error("API Error:", data.error);
+        // Set results to show the error
+        setResults({ error: data.error, details: data.details });
+      } else {
+        setResults(data);
+      }
     } catch (error) {
-      console.error("Error submitting test:", error);
+      console.error("Network Error:", error);
+      setResults({
+        error: "Network error occurred",
+        details: error instanceof Error ? error.message : "Unknown error",
+      });
     } finally {
       setSubmitting(false);
     }
@@ -124,6 +137,32 @@ export default function TestPage() {
   }
 
   if (results) {
+    // Check if we have an error response
+    if (results.error) {
+      return (
+        <div className="min-h-screen bg-background p-4">
+          <div className="mx-auto max-w-2xl space-y-8">
+            <Card>
+              <CardHeader>
+                <CardTitle>Error</CardTitle>
+                <CardDescription>Failed to grade test</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <p className="text-red-500">Error: {results.error}</p>
+                  {results.details && (
+                    <p className="text-red-500">Details: {results.details}</p>
+                  )}
+                  <Button onClick={() => setResults(null)}>Retake Test</Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      );
+    }
+
+    // Display normal results
     return (
       <div className="min-h-screen bg-background p-4">
         <div className="mx-auto max-w-2xl space-y-8">

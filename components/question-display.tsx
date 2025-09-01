@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Slider } from "@/components/ui/slider";
-import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 
 interface Question {
   id: string;
@@ -29,6 +29,7 @@ interface Question {
   correctAnswer?: string;
   correctAnswers?: string[];
   difficulty: "easy" | "medium" | "hard";
+  weight: number; // ✅ added weight
   scale?: string;
 }
 
@@ -51,14 +52,25 @@ export function QuestionDisplay({
     onAnswerChange(question.id, value);
   };
 
+  // ✅ Helper to show meta info consistently
+  const QuestionMeta = () => (
+    <CardDescription className="flex justify-between text-sm text-muted-foreground">
+      <span>Difficulty: {question.difficulty}</span>
+      <span>Weight: {question.weight}</span>
+    </CardDescription>
+  );
+
   switch (question.type) {
     case "yes-no":
       return (
-        <Card className="mb-6">
+        <Card className="mb-8 shadow-md border border-gray-200">
           <CardHeader>
-            <CardTitle className="text-lg">{question.question}</CardTitle>
-            <CardDescription>Difficulty: {question.difficulty}</CardDescription>
+            <CardTitle className="text-lg font-semibold">
+              {question.question}
+            </CardTitle>
+            <QuestionMeta />
           </CardHeader>
+          <Separator className="my-2" />
           <CardContent>
             <RadioGroup
               value={answer}
@@ -66,12 +78,12 @@ export function QuestionDisplay({
               className="flex space-x-4"
             >
               <div className="flex items-center space-x-2">
-                <RadioGroupItem value="Yes" id="yes" />
-                <Label htmlFor="yes">Yes</Label>
+                <RadioGroupItem value="Yes" id={`yes-${question.id}`} />
+                <Label htmlFor={`yes-${question.id}`}>Yes</Label>
               </div>
               <div className="flex items-center space-x-2">
-                <RadioGroupItem value="No" id="no" />
-                <Label htmlFor="no">No</Label>
+                <RadioGroupItem value="No" id={`no-${question.id}`} />
+                <Label htmlFor={`no-${question.id}`}>No</Label>
               </div>
             </RadioGroup>
           </CardContent>
@@ -80,11 +92,14 @@ export function QuestionDisplay({
 
     case "multiple-choice-single":
       return (
-        <Card className="mb-6">
+        <Card className="mb-8 shadow-md border border-gray-200">
           <CardHeader>
-            <CardTitle className="text-lg">{question.question}</CardTitle>
-            <CardDescription>Difficulty: {question.difficulty}</CardDescription>
+            <CardTitle className="text-lg font-semibold">
+              {question.question}
+            </CardTitle>
+            <QuestionMeta />
           </CardHeader>
+          <Separator className="my-2" />
           <CardContent>
             <RadioGroup value={answer} onValueChange={handleAnswerChange}>
               {question.options?.map((option, index) => (
@@ -100,11 +115,14 @@ export function QuestionDisplay({
 
     case "multiple-choice-multi":
       return (
-        <Card className="mb-6">
+        <Card className="mb-8 shadow-md border border-gray-200">
           <CardHeader>
-            <CardTitle className="text-lg">{question.question}</CardTitle>
-            <CardDescription>Difficulty: {question.difficulty}</CardDescription>
+            <CardTitle className="text-lg font-semibold">
+              {question.question}
+            </CardTitle>
+            <QuestionMeta />
           </CardHeader>
+          <Separator className="my-2" />
           <CardContent>
             <div className="space-y-2">
               {question.options?.map((option, index) => (
@@ -135,11 +153,14 @@ export function QuestionDisplay({
 
     case "scale":
       return (
-        <Card className="mb-6">
+        <Card className="mb-8 shadow-md border border-gray-200">
           <CardHeader>
-            <CardTitle className="text-lg">{question.question}</CardTitle>
-            <CardDescription>Difficulty: {question.difficulty}</CardDescription>
+            <CardTitle className="text-lg font-semibold">
+              {question.question}
+            </CardTitle>
+            <QuestionMeta />
           </CardHeader>
+          <Separator className="my-2" />
           <CardContent>
             <div className="space-y-4">
               <Slider
@@ -166,11 +187,14 @@ export function QuestionDisplay({
 
     case "rating":
       return (
-        <Card className="mb-6">
+        <Card className="mb-8 shadow-md border border-gray-200">
           <CardHeader>
-            <CardTitle className="text-lg">{question.question}</CardTitle>
-            <CardDescription>Difficulty: {question.difficulty}</CardDescription>
+            <CardTitle className="text-lg font-semibold">
+              {question.question}
+            </CardTitle>
+            <QuestionMeta />
           </CardHeader>
+          <Separator className="my-2" />
           <CardContent>
             <div className="space-y-4">
               <Slider
@@ -197,11 +221,14 @@ export function QuestionDisplay({
 
     default:
       return (
-        <Card className="mb-6">
+        <Card className="mb-8 shadow-md border border-gray-200">
           <CardHeader>
-            <CardTitle className="text-lg">{question.question}</CardTitle>
-            <CardDescription>Difficulty: {question.difficulty}</CardDescription>
+            <CardTitle className="text-lg font-semibold">
+              {question.question}
+            </CardTitle>
+            <QuestionMeta />
           </CardHeader>
+          <Separator className="my-2" />
           <CardContent>
             <Textarea
               placeholder="Enter your answer..."
