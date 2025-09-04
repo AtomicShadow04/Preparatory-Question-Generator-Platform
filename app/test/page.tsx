@@ -135,8 +135,11 @@ export default function TestPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background p-4 flex items-center justify-center">
-        <p>Loading questions...</p>
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-slate-600 text-lg">Loading questions...</p>
+        </div>
       </div>
     );
   }
@@ -169,52 +172,111 @@ export default function TestPage() {
 
     // Display normal results
     return (
-      <div className="min-h-screen bg-background p-4">
-        <div className="mx-auto max-w-2xl space-y-8">
-          <Card>
-            <CardHeader>
-              <CardTitle>Test Results</CardTitle>
-              <CardDescription>
-                Your score: {results.testResult.percentage.toFixed(1)}%
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <p>
-                  Total Score: {results.testResult.totalScore} /{" "}
-                  {results.testResult.maxPossibleScore}
-                </p>
-                <p>Correlation: {results.comparison.correlation}</p>
-                <p>Analysis: {results.comparison.analysis}</p>
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4">
+        <div className="mx-auto max-w-4xl space-y-8">
+          <div className="text-center py-6">
+            <h1 className="text-3xl font-bold text-slate-800 mb-2">
+              Test Results
+            </h1>
+            <p className="text-slate-600">
+              Your score:{" "}
+              <span className="font-bold text-2xl text-blue-600">
+                {results.testResult.percentage.toFixed(1)}%
+              </span>
+            </p>
+          </div>
 
-                <div>
-                  <h3 className="font-bold mb-2">Recommendations:</h3>
-                  <ul className="list-disc pl-5 space-y-1">
+          <Card className="shadow-lg border-0 bg-white/90 backdrop-blur-sm">
+            <CardContent className="p-8">
+              <div className="grid md:grid-cols-2 gap-8 mb-8">
+                <div className="bg-blue-50 p-6 rounded-xl">
+                  <h3 className="text-lg font-semibold text-blue-800 mb-2">
+                    Score Summary
+                  </h3>
+                  <p className="text-3xl font-bold text-blue-600">
+                    {results.testResult.totalScore} /{" "}
+                    {results.testResult.maxPossibleScore}
+                  </p>
+                  <p className="text-blue-700 mt-2">Total Points</p>
+                </div>
+                <div className="bg-green-50 p-6 rounded-xl">
+                  <h3 className="text-lg font-semibold text-green-800 mb-2">
+                    Performance
+                  </h3>
+                  <p className="text-2xl font-bold text-green-600">
+                    {results.testResult.percentage.toFixed(1)}%
+                  </p>
+                  <p className="text-green-700 mt-2">Percentage Score</p>
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                <div className="bg-slate-50 p-6 rounded-xl">
+                  <h3 className="text-xl font-semibold text-slate-800 mb-4">
+                    Analysis
+                  </h3>
+                  <p className="text-slate-700 mb-3">
+                    <strong>Correlation:</strong>{" "}
+                    {results.comparison.correlation}
+                  </p>
+                  <p className="text-slate-700">
+                    {results.comparison.analysis}
+                  </p>
+                </div>
+
+                <div className="bg-slate-50 p-6 rounded-xl">
+                  <h3 className="text-xl font-semibold text-slate-800 mb-4">
+                    Recommendations
+                  </h3>
+                  <ul className="space-y-2">
                     {results.comparison.recommendations.map(
                       (rec: string, index: number) => (
-                        <li key={index}>{rec}</li>
+                        <li key={index} className="flex items-start">
+                          <span className="bg-blue-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm font-bold mr-3 mt-0.5">
+                            {index + 1}
+                          </span>
+                          <span className="text-slate-700">{rec}</span>
+                        </li>
                       )
                     )}
                   </ul>
                 </div>
 
                 <div className="space-y-4">
-                  <h3 className="font-bold">Detailed Feedback:</h3>
+                  <h3 className="text-2xl font-semibold text-slate-800">
+                    Detailed Feedback
+                  </h3>
                   {results.testResult.gradingResults.map(
                     (result: any, index: number) => (
-                      <Card key={index}>
-                        <CardHeader>
-                          <CardTitle className="text-md">
+                      <Card
+                        key={index}
+                        className="border-0 shadow-md bg-white/80"
+                      >
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-lg text-slate-800">
                             Question {index + 1}
                           </CardTitle>
                         </CardHeader>
                         <CardContent>
-                          <p>
-                            Score: {result.score} / {result.maxScore}
-                          </p>
-                          <p>Feedback: {result.feedback}</p>
-                          <p>
-                            Status: {result.isCorrect ? "Correct" : "Incorrect"}
+                          <div className="flex items-center justify-between mb-3">
+                            <span className="text-lg font-semibold">
+                              Score:{" "}
+                              <span className="text-blue-600">
+                                {result.score} / {result.maxScore}
+                              </span>
+                            </span>
+                            <span
+                              className={`px-3 py-1 rounded-full text-sm font-medium ${
+                                result.isCorrect
+                                  ? "bg-green-100 text-green-800"
+                                  : "bg-red-100 text-red-800"
+                              }`}
+                            >
+                              {result.isCorrect ? "Correct" : "Incorrect"}
+                            </span>
+                          </div>
+                          <p className="text-slate-700 bg-slate-50 p-3 rounded-lg">
+                            {result.feedback}
                           </p>
                         </CardContent>
                       </Card>
@@ -222,13 +284,21 @@ export default function TestPage() {
                   )}
                 </div>
 
-                <Button onClick={() => setResults(null)}>Retake Test</Button>
-                <Button
-                  className="ml-5"
-                  onClick={() => (window.location.href = "/")}
-                >
-                  Home Page
-                </Button>
+                <div className="flex gap-4 pt-6 border-t border-slate-200">
+                  <Button
+                    onClick={() => setResults(null)}
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors"
+                  >
+                    Retake Test
+                  </Button>
+                  <Button
+                    onClick={() => (window.location.href = "/")}
+                    variant="outline"
+                    className="px-6 py-3 rounded-lg font-medium border-slate-300 hover:bg-slate-50"
+                  >
+                    Home Page
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -238,37 +308,44 @@ export default function TestPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background p-4">
-      <div className="mx-auto max-w-2xl space-y-8">
-        <Card>
-          <CardHeader>
-            <CardTitle>Knowledge Test</CardTitle>
-            <CardDescription>
-              Answer all questions to the best of your ability
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-6">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4">
+      <div className="mx-auto max-w-3xl space-y-8">
+        <div className="text-center py-6">
+          <h1 className="text-3xl font-bold text-slate-800 mb-2">
+            Knowledge Test
+          </h1>
+          <p className="text-slate-600">
+            Answer all questions to the best of your ability
+          </p>
+        </div>
+
+        <Card className="shadow-lg border-0 bg-white/90 backdrop-blur-sm">
+          <CardContent className="p-8">
+            <div className="space-y-8">
               {categories.length > 0 ? (
                 <QuestionDisplay
                   categories={categories}
                   onAnswerChange={handleAnswerChange}
                 />
               ) : (
-                <p>No questions available</p>
+                <p className="text-center text-slate-500 py-8">
+                  No questions available
+                </p>
               )}
 
-              <Button
-                onClick={handleSubmit}
-                disabled={
-                  submitting ||
-                  answers.length !==
-                    categories.flatMap((cat) => cat.questions).length
-                }
-                className="w-full"
-              >
-                {submitting ? "Submitting..." : "Submit Answers"}
-              </Button>
+              <div className="pt-6 border-t border-slate-200">
+                <Button
+                  onClick={handleSubmit}
+                  disabled={
+                    submitting ||
+                    answers.length !==
+                      categories.flatMap((cat) => cat.questions).length
+                  }
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-medium transition-colors"
+                >
+                  {submitting ? "Submitting..." : "Submit Answers"}
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>

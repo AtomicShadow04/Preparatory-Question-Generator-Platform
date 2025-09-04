@@ -197,14 +197,14 @@ export default function DocumentUploadPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background p-4">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4">
       <div className="mx-auto max-w-2xl space-y-8">
         {/* Header */}
-        <div className="text-center space-y-2">
-          <h1 className="text-3xl font-bold text-balance text-foreground">
+        <div className="text-center space-y-4 py-8">
+          <h1 className="text-4xl font-bold text-balance text-slate-800">
             Document Upload & Processing
           </h1>
-          <p className="text-muted-foreground text-pretty">
+          <p className="text-slate-600 text-lg text-pretty max-w-md mx-auto">
             Upload your PDF or Word document to generate questions and test your
             knowledge
           </p>
@@ -242,13 +242,13 @@ export default function DocumentUploadPage() {
         )}
 
         {/* Upload Section */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Upload className="h-5 w-5" />
+        <Card className="shadow-lg border-0 bg-white/80 backdrop-blur-sm">
+          <CardHeader className="pb-4">
+            <CardTitle className="flex items-center gap-3 text-xl text-slate-800">
+              <Upload className="h-6 w-6 text-blue-600" />
               Upload Document
             </CardTitle>
-            <CardDescription>
+            <CardDescription className="text-slate-600">
               Drag and drop your file here, or click to browse. Supports PDF,
               Word, and text documents (max 10MB).
             </CardDescription>
@@ -256,10 +256,12 @@ export default function DocumentUploadPage() {
           <CardContent>
             <div
               className={cn(
-                "border-2 border-dashed rounded-lg p-8 text-center transition-colors",
-                isDragOver ? "border-primary bg-primary/5" : "border-border",
-                uploadedFile ? "border-green-500 bg-green-50" : "",
-                error ? "border-red-500 bg-red-50" : ""
+                "border-2 border-dashed rounded-xl p-10 text-center transition-all duration-200 hover:shadow-md",
+                isDragOver
+                  ? "border-blue-400 bg-blue-50/50"
+                  : "border-slate-300 bg-slate-50/30",
+                uploadedFile ? "border-green-400 bg-green-50/50" : "",
+                error ? "border-red-400 bg-red-50/50" : ""
               )}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
@@ -327,11 +329,11 @@ export default function DocumentUploadPage() {
             </div>
 
             {uploadedFile && !uploadSuccess && (
-              <div className="mt-6 space-y-4">
+              <div className="mt-8 space-y-4">
                 <Button
                   onClick={handleUpload}
                   disabled={uploading || !selectedFile}
-                  className="w-full"
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-medium transition-colors"
                 >
                   {uploading
                     ? "Processing Document..."
@@ -339,7 +341,7 @@ export default function DocumentUploadPage() {
                 </Button>
 
                 {uploading && (
-                  <div className="text-center text-sm text-muted-foreground">
+                  <div className="text-center text-sm text-slate-500">
                     <p>
                       This may take a few moments depending on document size...
                     </p>
