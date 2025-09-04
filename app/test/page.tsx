@@ -28,13 +28,18 @@ interface Question {
   scale?: string;
 }
 
+interface Category {
+  title: string;
+  questions: Question[];
+}
+
 interface UserAnswer {
   questionId: string;
   answer: string;
 }
 
 export default function TestPage() {
-  const [questions, setQuestions] = useState<Question[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [answers, setAnswers] = useState<UserAnswer[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -63,8 +68,8 @@ export default function TestPage() {
       });
 
       const data = await response.json();
-      if (data.questions) {
-        setQuestions(data.questions);
+      if (data.categories) {
+        setCategories(data.categories);
       }
     } catch (error) {
       console.error("Error fetching questions:", error);
@@ -102,7 +107,7 @@ export default function TestPage() {
         body: JSON.stringify({
           userId: "user123",
           testId: `test_${documentId}`,
-          questions,
+          questions: categories.flatMap((cat) => cat.questions),
           answers,
         }),
       });
@@ -244,17 +249,22 @@ export default function TestPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-6">
-              {questions.map((question) => (
+              {categories.length > 0 ? (
                 <QuestionDisplay
-                  key={question.id}
-                  question={question}
+                  categories={categories}
                   onAnswerChange={handleAnswerChange}
                 />
-              ))}
+              ) : (
+                <p>No questions available</p>
+              )}
 
               <Button
                 onClick={handleSubmit}
-                disabled={submitting || answers.length !== questions.length}
+                disabled={
+                  submitting ||
+                  answers.length !==
+                    categories.flatMap((cat) => cat.questions).length
+                }
                 className="w-full"
               >
                 {submitting ? "Submitting..." : "Submit Answers"}

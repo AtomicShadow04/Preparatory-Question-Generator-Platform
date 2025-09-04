@@ -6,36 +6,54 @@ import { VectorStoreService } from "@/lib/document-store";
 import { randomUUID } from "crypto";
 
 class QuestionGenerator {
-  // Reusable prompt template
-  private static readonly questionPrompt = PromptTemplate.fromTemplate(`
-You are a question generator.
-Given the following content section, create a list of diverse question types in **strict JSON format only**.
+  private static readonly questionPrompt = new PromptTemplate({
+    template: `
+You are a preparation question generator for a specific university module.
 
-Content Section:
+Inputs you will receive:
+- The module title and description
+- A list of official Learning Outcomes
+- The Assessment Marking Scheme with weights
+
 {content}
 
-Return JSON in the exact format below (no explanations, no markdown, no text outside JSON):
-Each question MUST include ALL of these fields:
-- type: Must be one of "yes-no", "multiple-choice-single", "multiple-choice-multi", "scale", or "rating"
-- question: The actual question text
-- options: Array of string options (include for multiple-choice and scale questions, omit for yes-no)
-- correctAnswer: The correct answer (optional)
-- difficulty: Must be one of "easy", "medium", or "hard"
-- weight: A number between 1-10 representing the question's importance
+Your tasks:
+1. Carefully read the provided learning outcomes.
+2. Generate preparatory questions ONLY about the knowledge, skills, and concepts listed in those outcomes.
+   - Do not invent unrelated topics (stay within the module).
+   - Write questions that a lecturer could ask to test if students have achieved the outcome.
+3. Use a mix of formats: "yes-no", "multiple-choice-single", "multiple-choice-multi", "scale", "rating".
+   - Yes/No: "Do you know how to calculate NPV?"
+   - Multiple-choice: "Which financial ratio measures liquidity?"
+   - Scale/Rating: "Rate your confidence in applying SWOT to a case study."
+4. Assign weights:
+   - Use the marking scheme to distribute weights across outcomes.
+   - Higher-weighted assessment sections = higher-weighted questions.
+   - Example: if 'Analysis of Current Business' = 25% of grade, questions linked to that outcome should have higher weights (7–10).
+5. Group questions by learning outcome, and include the outcome title.
+
+Return JSON ONLY in this structure:
 
 {{
-  "questions": [
+  "categories": [
     {{
-      "type": "yes-no" | "multiple-choice-single" | "multiple-choice-multi" | "scale" | "rating",
-      "question": string,
-      "options": string[] (optional),
-      "correctAnswer": string | string[] (optional),
-      "difficulty": "easy" | "medium" | "hard",
-      "weight": number
+      "title": "Learning Outcome Title",
+      "questions": [
+        {{
+          "type": "yes-no" | "multiple-choice-single" | "multiple-choice-multi" | "scale" | "rating",
+          "question": string,
+          "options": string[] (optional),
+          "correctAnswer": string | string[] (optional),
+          "difficulty": "easy" | "medium" | "hard",
+          "weight": number
+        }}
+      ]
     }}
   ]
 }}
-`);
+`,
+    inputVariables: ["content"],
+  });
 
   // Generate questions
   static async generateQuestions(content: string, count: number = 10) {
@@ -44,13 +62,14 @@ Each question MUST include ALL of these fields:
       temperature: 0.3,
     });
 
-    // Update the prompt to specify the number of questions
-    const updatedContent = `${content}\n\nGenerate exactly ${count} diverse questions based on the content above.`;
+    // Update content with explicit instruction for number of questions
+    const updatedContent = `${content}\n\nGenerate questions for all learning outcomes as described above. Each learning outcome must have its own category with 5–7 questions.`;
 
     const parser = new StringOutputParser();
     const chain = this.questionPrompt.pipe(model).pipe(parser);
 
     const response = await chain.invoke({ content: updatedContent });
+    console.log("OpenAI response:", response);
 
     // Clean response (remove markdown code fences if any)
     const cleanedResponse = response.replace(/```json|```/g, "").trim();
@@ -58,26 +77,29 @@ Each question MUST include ALL of these fields:
     let result;
     try {
       result = JSON.parse(cleanedResponse);
+      console.log("Parsed result:", result);
     } catch (parseError) {
       console.error("JSON parsing error:", parseError);
       console.error("Raw response:", response);
 
       // fallback
-      result = { questions: [] };
+      result = { categories: [] };
     }
 
-    // Add unique IDs to each question and ensure all required fields are present
-    if (result.questions && Array.isArray(result.questions)) {
-      result.questions = result.questions.map((question: any) => ({
-        // Ensure all required fields are present
-        type: question.type,
-        question: question.question,
-        options: question.options || undefined,
-        correctAnswer: question.correctAnswer || undefined,
-        correctAnswers: question.correctAnswers || undefined,
-        difficulty: question.difficulty || "medium",
-        weight: question.weight || 5, // Default weight if not provided
-        id: randomUUID(),
+    // Ensure unique IDs for all questions
+    if (result.categories && Array.isArray(result.categories)) {
+      result.categories = result.categories.map((category: any) => ({
+        ...category,
+        questions: (category.questions || []).map((q: any) => ({
+          type: q.type,
+          question: q.question,
+          options: q.options || undefined,
+          correctAnswer: q.correctAnswer || undefined,
+          correctAnswers: q.correctAnswers || undefined,
+          difficulty: q.difficulty || "medium",
+          weight: q.weight || 5,
+          id: randomUUID(),
+        })),
       }));
     }
 
@@ -89,6 +111,7 @@ Each question MUST include ALL of these fields:
 export async function POST(req: Request) {
   try {
     const { documentId, count = 10 } = await req.json();
+    console.log("Received documentId:", documentId);
     if (!documentId) {
       return NextResponse.json(
         { error: "No documentId provided" },
@@ -98,6 +121,7 @@ export async function POST(req: Request) {
 
     // Retrieve document content using documentId
     const documentStore = VectorStoreService.getDocumentStore(documentId);
+    console.log("Document store found:", !!documentStore);
     if (!documentStore || !documentStore.originalContent) {
       return NextResponse.json(
         { error: "Document not found" },
@@ -109,6 +133,7 @@ export async function POST(req: Request) {
       documentStore.originalContent,
       count
     );
+    console.log("Generated questions:", questions);
     return NextResponse.json(questions);
   } catch (error) {
     console.error("Error in POST /api/questions:", error);

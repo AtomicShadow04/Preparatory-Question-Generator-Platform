@@ -9,7 +9,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -29,8 +28,12 @@ interface Question {
   correctAnswer?: string;
   correctAnswers?: string[];
   difficulty: "easy" | "medium" | "hard";
-  weight: number; // ✅ added weight
-  scale?: string;
+  weight: number;
+}
+
+interface Category {
+  title: string;
+  questions: Question[];
 }
 
 interface UserAnswer {
@@ -39,204 +42,245 @@ interface UserAnswer {
 }
 
 export function QuestionDisplay({
-  question,
+  categories,
   onAnswerChange,
 }: {
-  question: Question;
+  categories: Category[];
   onAnswerChange: (questionId: string, answer: string) => void;
 }) {
-  const [answer, setAnswer] = useState<string>("");
+  const [answers, setAnswers] = useState<Record<string, string>>({});
 
-  const handleAnswerChange = (value: string) => {
-    setAnswer(value);
-    onAnswerChange(question.id, value);
+  const handleAnswerChange = (questionId: string, value: string) => {
+    setAnswers((prev) => ({ ...prev, [questionId]: value }));
+    onAnswerChange(questionId, value);
   };
 
-  // ✅ Helper to show meta info consistently
-  const QuestionMeta = () => (
+  // Reusable meta info
+  const QuestionMeta = ({ question }: { question: Question }) => (
     <CardDescription className="flex justify-between text-sm text-muted-foreground">
       <span>Difficulty: {question.difficulty}</span>
       <span>Weight: {question.weight}</span>
     </CardDescription>
   );
 
-  switch (question.type) {
-    case "yes-no":
-      return (
-        <Card className="mb-8 shadow-md border border-gray-200">
-          <CardHeader>
-            <CardTitle className="text-lg font-semibold">
-              {question.question}
-            </CardTitle>
-            <QuestionMeta />
-          </CardHeader>
-          <Separator className="my-2" />
-          <CardContent>
-            <RadioGroup
-              value={answer}
-              onValueChange={handleAnswerChange}
-              className="flex space-x-4"
-            >
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="Yes" id={`yes-${question.id}`} />
-                <Label htmlFor={`yes-${question.id}`}>Yes</Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="No" id={`no-${question.id}`} />
-                <Label htmlFor={`no-${question.id}`}>No</Label>
-              </div>
-            </RadioGroup>
-          </CardContent>
-        </Card>
-      );
+  return (
+    <div>
+      {categories.map((category, idx) => (
+        <div key={idx} className="mb-12">
+          <h2 className="text-xl font-bold mb-6">{category.title}</h2>
+          {category.questions.map((question) => {
+            const answer = answers[question.id] || "";
 
-    case "multiple-choice-single":
-      return (
-        <Card className="mb-8 shadow-md border border-gray-200">
-          <CardHeader>
-            <CardTitle className="text-lg font-semibold">
-              {question.question}
-            </CardTitle>
-            <QuestionMeta />
-          </CardHeader>
-          <Separator className="my-2" />
-          <CardContent>
-            <RadioGroup value={answer} onValueChange={handleAnswerChange}>
-              {question.options?.map((option, index) => (
-                <div key={index} className="flex items-center space-x-2 mb-2">
-                  <RadioGroupItem value={option} id={`option-${index}`} />
-                  <Label htmlFor={`option-${index}`}>{option}</Label>
-                </div>
-              ))}
-            </RadioGroup>
-          </CardContent>
-        </Card>
-      );
+            switch (question.type) {
+              case "yes-no":
+                return (
+                  <Card key={question.id} className="mb-8 shadow-md border">
+                    <CardHeader>
+                      <CardTitle className="text-lg font-semibold">
+                        {question.question}
+                      </CardTitle>
+                      <QuestionMeta question={question} />
+                    </CardHeader>
+                    <Separator className="my-2" />
+                    <CardContent>
+                      <RadioGroup
+                        value={answer}
+                        onValueChange={(val) =>
+                          handleAnswerChange(question.id, val)
+                        }
+                        className="flex space-x-4"
+                      >
+                        <div className="flex items-center space-x-2">
+                          <RadioGroupItem
+                            value="Yes"
+                            id={`yes-${question.id}`}
+                          />
+                          <Label htmlFor={`yes-${question.id}`}>Yes</Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <RadioGroupItem value="No" id={`no-${question.id}`} />
+                          <Label htmlFor={`no-${question.id}`}>No</Label>
+                        </div>
+                      </RadioGroup>
+                    </CardContent>
+                  </Card>
+                );
 
-    case "multiple-choice-multi":
-      return (
-        <Card className="mb-8 shadow-md border border-gray-200">
-          <CardHeader>
-            <CardTitle className="text-lg font-semibold">
-              {question.question}
-            </CardTitle>
-            <QuestionMeta />
-          </CardHeader>
-          <Separator className="my-2" />
-          <CardContent>
-            <div className="space-y-2">
-              {question.options?.map((option, index) => (
-                <div key={index} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={`checkbox-${index}`}
-                    onCheckedChange={(checked: boolean) => {
-                      if (checked) {
-                        const newAnswer = answer
-                          ? `${answer},${option}`
-                          : option;
-                        handleAnswerChange(newAnswer);
-                      } else {
-                        const answers = answer
-                          .split(",")
-                          .filter((a) => a !== option);
-                        handleAnswerChange(answers.join(","));
-                      }
-                    }}
-                  />
-                  <Label htmlFor={`checkbox-${index}`}>{option}</Label>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      );
+              case "multiple-choice-single":
+                return (
+                  <Card key={question.id} className="mb-8 shadow-md border">
+                    <CardHeader>
+                      <CardTitle className="text-lg font-semibold">
+                        {question.question}
+                      </CardTitle>
+                      <QuestionMeta question={question} />
+                    </CardHeader>
+                    <Separator className="my-2" />
+                    <CardContent>
+                      <RadioGroup
+                        value={answer}
+                        onValueChange={(val) =>
+                          handleAnswerChange(question.id, val)
+                        }
+                      >
+                        {question.options?.map((option, index) => (
+                          <div
+                            key={index}
+                            className="flex items-center space-x-2 mb-2"
+                          >
+                            <RadioGroupItem
+                              value={option}
+                              id={`option-${question.id}-${index}`}
+                            />
+                            <Label htmlFor={`option-${question.id}-${index}`}>
+                              {option}
+                            </Label>
+                          </div>
+                        ))}
+                      </RadioGroup>
+                    </CardContent>
+                  </Card>
+                );
 
-    case "scale":
-      return (
-        <Card className="mb-8 shadow-md border border-gray-200">
-          <CardHeader>
-            <CardTitle className="text-lg font-semibold">
-              {question.question}
-            </CardTitle>
-            <QuestionMeta />
-          </CardHeader>
-          <Separator className="my-2" />
-          <CardContent>
-            <div className="space-y-4">
-              <Slider
-                min={1}
-                max={10}
-                step={1}
-                value={[parseInt(answer) || 5]}
-                onValueChange={(value: number[]) =>
-                  handleAnswerChange(value[0].toString())
-                }
-                className="w-full"
-              />
-              <div className="flex justify-between text-sm">
-                <span>1</span>
-                <span className="text-muted-foreground">
-                  Current: {answer || "5"}
-                </span>
-                <span>10</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      );
+              case "multiple-choice-multi":
+                return (
+                  <Card key={question.id} className="mb-8 shadow-md border">
+                    <CardHeader>
+                      <CardTitle className="text-lg font-semibold">
+                        {question.question}
+                      </CardTitle>
+                      <QuestionMeta question={question} />
+                    </CardHeader>
+                    <Separator className="my-2" />
+                    <CardContent>
+                      <div className="space-y-2">
+                        {question.options?.map((option, index) => (
+                          <div
+                            key={index}
+                            className="flex items-center space-x-2"
+                          >
+                            <Checkbox
+                              id={`checkbox-${question.id}-${index}`}
+                              onCheckedChange={(checked: boolean) => {
+                                let newAnswerArray = answer
+                                  ? answer.split(",")
+                                  : [];
+                                if (checked) {
+                                  newAnswerArray.push(option);
+                                } else {
+                                  newAnswerArray = newAnswerArray.filter(
+                                    (a) => a !== option
+                                  );
+                                }
+                                handleAnswerChange(
+                                  question.id,
+                                  newAnswerArray.join(",")
+                                );
+                              }}
+                            />
+                            <Label htmlFor={`checkbox-${question.id}-${index}`}>
+                              {option}
+                            </Label>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
 
-    case "rating":
-      return (
-        <Card className="mb-8 shadow-md border border-gray-200">
-          <CardHeader>
-            <CardTitle className="text-lg font-semibold">
-              {question.question}
-            </CardTitle>
-            <QuestionMeta />
-          </CardHeader>
-          <Separator className="my-2" />
-          <CardContent>
-            <div className="space-y-4">
-              <Slider
-                min={1}
-                max={5}
-                step={1}
-                value={[parseInt(answer) || 3]}
-                onValueChange={(value: number[]) =>
-                  handleAnswerChange(value[0].toString())
-                }
-                className="w-full"
-              />
-              <div className="flex justify-between text-sm">
-                <span>1</span>
-                <span className="text-muted-foreground">
-                  Current: {answer || "3"}
-                </span>
-                <span>5</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      );
+              case "scale":
+                return (
+                  <Card key={question.id} className="mb-8 shadow-md border">
+                    <CardHeader>
+                      <CardTitle className="text-lg font-semibold">
+                        {question.question}
+                      </CardTitle>
+                      <QuestionMeta question={question} />
+                    </CardHeader>
+                    <Separator className="my-2" />
+                    <CardContent>
+                      <div className="space-y-4">
+                        <Slider
+                          min={1}
+                          max={10}
+                          step={1}
+                          value={[parseInt(answer) || 5]}
+                          onValueChange={(val: number[]) =>
+                            handleAnswerChange(question.id, val[0].toString())
+                          }
+                          className="w-full"
+                        />
+                        <div className="flex justify-between text-sm">
+                          <span>1</span>
+                          <span className="text-muted-foreground">
+                            Current: {answer || "5"}
+                          </span>
+                          <span>10</span>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
 
-    default:
-      return (
-        <Card className="mb-8 shadow-md border border-gray-200">
-          <CardHeader>
-            <CardTitle className="text-lg font-semibold">
-              {question.question}
-            </CardTitle>
-            <QuestionMeta />
-          </CardHeader>
-          <Separator className="my-2" />
-          <CardContent>
-            <Textarea
-              placeholder="Enter your answer..."
-              value={answer}
-              onChange={(e) => handleAnswerChange(e.target.value)}
-            />
-          </CardContent>
-        </Card>
-      );
-  }
+              case "rating":
+                return (
+                  <Card key={question.id} className="mb-8 shadow-md border">
+                    <CardHeader>
+                      <CardTitle className="text-lg font-semibold">
+                        {question.question}
+                      </CardTitle>
+                      <QuestionMeta question={question} />
+                    </CardHeader>
+                    <Separator className="my-2" />
+                    <CardContent>
+                      <div className="space-y-4">
+                        <Slider
+                          min={1}
+                          max={5}
+                          step={1}
+                          value={[parseInt(answer) || 3]}
+                          onValueChange={(val: number[]) =>
+                            handleAnswerChange(question.id, val[0].toString())
+                          }
+                          className="w-full"
+                        />
+                        <div className="flex justify-between text-sm">
+                          <span>1</span>
+                          <span className="text-muted-foreground">
+                            Current: {answer || "3"}
+                          </span>
+                          <span>5</span>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+
+              default:
+                return (
+                  <Card key={question.id} className="mb-8 shadow-md border">
+                    <CardHeader>
+                      <CardTitle className="text-lg font-semibold">
+                        {question.question}
+                      </CardTitle>
+                      <QuestionMeta question={question} />
+                    </CardHeader>
+                    <Separator className="my-2" />
+                    <CardContent>
+                      <Textarea
+                        placeholder="Enter your answer..."
+                        value={answer}
+                        onChange={(e) =>
+                          handleAnswerChange(question.id, e.target.value)
+                        }
+                      />
+                    </CardContent>
+                  </Card>
+                );
+            }
+          })}
+        </div>
+      ))}
+    </div>
+  );
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ChatOpenAI } from "@langchain/openai";
 import { PromptTemplate } from "@langchain/core/prompts";
 import { StringOutputParser } from "@langchain/core/output_parsers";
+import { VectorStoreService } from "@/lib/document-store";
 
 interface Question {
   id: string;
@@ -34,10 +35,11 @@ interface GradingResult {
 }
 
 // Function to calculate score for a single question
-function calculateScore(
+async function calculateScore(
   question: Question,
-  userAnswer: UserAnswer
-): { score: number; maxScore: number; isCorrect: boolean } {
+  userAnswer: UserAnswer,
+  documentContent: string
+): Promise<{ score: number; maxScore: number; isCorrect: boolean }> {
   // Validate inputs
   if (!question || !userAnswer) {
     return { score: 0, maxScore: 1, isCorrect: false };
@@ -45,89 +47,135 @@ function calculateScore(
 
   const maxScore = Math.max(1, question.weight || 1); // Ensure maxScore is at least 1
 
-  // For questions with correct answers
-  if (question.correctAnswer || question.correctAnswers) {
-    // Handle case where user didn't provide an answer
-    if (!userAnswer.answer) {
-      return { score: 0, maxScore, isCorrect: false };
-    }
+  // Handle case where user didn't provide an answer
+  if (!userAnswer.answer) {
+    return { score: 0, maxScore, isCorrect: false };
+  }
 
-    switch (question.type) {
-      case "yes-no":
-      case "multiple-choice-single":
-      case "scale":
-      case "rating":
-        // Handle case where correctAnswer is not defined
-        if (!question.correctAnswer) {
-          return { score: 0, maxScore, isCorrect: false };
-        }
+  // For objective questions, use strict checking
+  if (
+    question.type === "yes-no" ||
+    question.type === "multiple-choice-single" ||
+    question.type === "multiple-choice-multi"
+  ) {
+    if (question.correctAnswer || question.correctAnswers) {
+      switch (question.type) {
+        case "yes-no":
+        case "multiple-choice-single":
+          if (!question.correctAnswer) {
+            return { score: 0, maxScore, isCorrect: false };
+          }
+          const correct =
+            (typeof question.correctAnswer === "string"
+              ? question.correctAnswer.toLowerCase()
+              : "") ===
+            (typeof userAnswer.answer === "string"
+              ? userAnswer.answer.toLowerCase()
+              : "");
+          return {
+            score: correct ? maxScore : 0,
+            maxScore,
+            isCorrect: correct,
+          };
 
-        const correct =
-          (typeof question.correctAnswer === "string"
-            ? question.correctAnswer.toLowerCase()
-            : "") ===
-          (typeof userAnswer.answer === "string"
-            ? userAnswer.answer.toLowerCase()
-            : "");
-        return {
-          score: correct ? maxScore : 0,
-          maxScore,
-          isCorrect: correct,
-        };
-
-      case "multiple-choice-multi":
-        // For multi-select, partial credit is possible
-        const correctAnswers = Array.isArray(question.correctAnswers)
-          ? question.correctAnswers
-          : question.correctAnswer
-          ? [question.correctAnswer]
-          : [];
-
-        // Handle case where there are no correct answers defined
-        if (correctAnswers.length === 0) {
-          return { score: 0, maxScore, isCorrect: false };
-        }
-
-        const userAnswers = userAnswer.answer.split(",").map((a) => a.trim());
-
-        const correctCount = userAnswers.filter((answer) => {
-          // Ensure answer is a string before calling toLowerCase
-          const normalizedAnswer =
-            typeof answer === "string" ? answer.toLowerCase() : "";
-
-          return correctAnswers.some((correct) => {
-            // Ensure correct is a string before calling toLowerCase
-            const normalizedCorrect =
-              typeof correct === "string" ? correct.toLowerCase() : "";
-            return normalizedCorrect === normalizedAnswer;
-          });
-        }).length;
-
-        const incorrectCount = userAnswers.length - correctCount;
-        const score = Math.max(
-          0,
-          (correctCount * maxScore) / correctAnswers.length -
-            (incorrectCount * maxScore) / correctAnswers.length
-        );
-
-        return {
-          score: Math.round(score * 100) / 100, // Round to 2 decimal places
-          maxScore,
-          isCorrect: score === maxScore,
-        };
-
-      default:
-        // Handle unknown question types
-        return { score: 0, maxScore, isCorrect: false };
+        case "multiple-choice-multi":
+          const correctAnswers = Array.isArray(question.correctAnswers)
+            ? question.correctAnswers
+            : question.correctAnswer
+            ? [question.correctAnswer]
+            : [];
+          if (correctAnswers.length === 0) {
+            return { score: 0, maxScore, isCorrect: false };
+          }
+          const userAnswers = userAnswer.answer.split(",").map((a) => a.trim());
+          const correctCount = userAnswers.filter((answer) => {
+            const normalizedAnswer =
+              typeof answer === "string" ? answer.toLowerCase() : "";
+            return correctAnswers.some((correct) => {
+              const normalizedCorrect =
+                typeof correct === "string" ? correct.toLowerCase() : "";
+              return normalizedCorrect === normalizedAnswer;
+            });
+          }).length;
+          const incorrectCount = userAnswers.length - correctCount;
+          const score = Math.max(
+            0,
+            (correctCount * maxScore) / correctAnswers.length -
+              (incorrectCount * maxScore) / correctAnswers.length
+          );
+          return {
+            score: Math.round(score * 100) / 100,
+            maxScore,
+            isCorrect: score === maxScore,
+          };
+      }
     }
   }
 
-  // For questions without predefined correct answers, return full score
-  return {
-    score: maxScore,
-    maxScore,
-    isCorrect: true,
-  };
+  // For subjective questions (scale, rating) or questions without correct answers, use AI grading
+  try {
+    const llm = new ChatOpenAI({
+      openAIApiKey: process.env.OPENAI_API_KEY,
+      modelName: "gpt-4o-mini",
+      temperature: 0.3,
+    });
+
+    const gradingPrompt = PromptTemplate.fromTemplate(`
+      You are an educational assessor. Evaluate a student's answer based on the marking scheme and content from the document.
+
+      Document Content: {documentContent}
+
+      Question: {question}
+      Question Type: {type}
+      Expected Answer: {expectedAnswer}
+      Student's Answer: {userAnswer}
+      Maximum Score: {maxScore}
+
+      Assess the student's answer considering:
+      1. Accuracy and understanding of the concepts
+      2. Completeness of the response
+      3. Alignment with the marking scheme in the document
+      4. Appropriateness for the question type
+
+      Provide a score from 0 to {maxScore} based on the quality of the answer.
+      Return only a JSON object: {"score": number, "isCorrect": boolean}
+    `);
+
+    const parser = new StringOutputParser();
+    const chain = gradingPrompt.pipe(llm).pipe(parser);
+
+    const expectedAnswer =
+      question.correctAnswer ||
+      (question.correctAnswers
+        ? question.correctAnswers.join(", ")
+        : "Based on document content");
+
+    const response = await chain.invoke({
+      documentContent,
+      question: question.question,
+      type: question.type,
+      expectedAnswer,
+      userAnswer: userAnswer.answer,
+      maxScore: maxScore.toString(),
+    });
+
+    const cleanedResponse = response.replace(/```json|```/g, "").trim();
+    const result = JSON.parse(cleanedResponse);
+
+    return {
+      score: Math.max(0, Math.min(maxScore, result.score || 0)),
+      maxScore,
+      isCorrect: result.isCorrect || result.score >= maxScore * 0.8,
+    };
+  } catch (error) {
+    console.error("Error in AI grading:", error);
+    // Fallback to full score for subjective questions
+    return {
+      score: maxScore,
+      maxScore,
+      isCorrect: true,
+    };
+  }
 }
 
 // Function to generate feedback using AI
@@ -135,7 +183,8 @@ async function generateFeedback(
   question: Question,
   userAnswer: UserAnswer,
   score: number,
-  maxScore: number
+  maxScore: number,
+  documentContent: string
 ): Promise<string> {
   // Validate inputs
   if (!question || !userAnswer) {
@@ -160,20 +209,22 @@ async function generateFeedback(
     });
 
     const feedbackPrompt = PromptTemplate.fromTemplate(`
-      You are an educational feedback generator. Provide constructive feedback for a student's answer to a question.
-      
+      You are an educational feedback generator. Provide constructive feedback for a student's answer based on the document content and marking scheme.
+
+      Document Content: {documentContent}
+
       Question: {question}
       Question Type: {type}
       Correct Answer: {correctAnswer}
       Student's Answer: {userAnswer}
       Score Achieved: {score} out of {maxScore}
-      
+
       Provide brief, helpful feedback that:
       1. Acknowledges what the student did well if they scored points
-      2. Gently corrects any misconceptions if they lost points
-      3. Encourages learning and improvement
+      2. Gently corrects any misconceptions if they lost points based on the document
+      3. Encourages learning and improvement aligned with the marking scheme
       4. Is appropriate for the question type and difficulty level
-      
+
       Keep your feedback concise (1-2 sentences).
     `);
 
@@ -185,6 +236,7 @@ async function generateFeedback(
       (question.correctAnswers ? question.correctAnswers.join(", ") : "N/A");
 
     const feedback = await chain.invoke({
+      documentContent,
       question: question.question || "Unknown question",
       type: question.type || "unknown",
       correctAnswer,
@@ -209,7 +261,8 @@ async function generateFeedback(
 async function generateComparison(
   questions: Question[],
   answers: UserAnswer[],
-  gradingResults: GradingResult[]
+  gradingResults: GradingResult[],
+  documentContent: string
 ): Promise<{
   correlation: string;
   analysis: string;
@@ -223,22 +276,24 @@ async function generateComparison(
     });
 
     const comparisonPrompt = PromptTemplate.fromTemplate(`
-      You are an educational assessment expert. Analyze a student's test performance and provide insights.
-      
+      You are an educational assessment expert. Analyze a student's test performance based on the document content and marking scheme.
+
+      Document Content: {documentContent}
+
       Questions and Answers:
       {qaPairs}
-      
+
       Grading Results:
       {gradingResults}
-      
+
       Total Score: {totalScore} out of {maxScore}
       Percentage: {percentage}%
-      
+
       Provide:
       1. A brief correlation analysis (1 sentence) between question difficulty and student performance
-      2. A detailed performance analysis (2-3 sentences) highlighting strengths and areas for improvement
-      3. 3 specific, actionable recommendations for improvement
-      
+      2. A detailed performance analysis (2-3 sentences) highlighting strengths and areas for improvement based on the marking scheme
+      3. 3 specific, actionable recommendations for improvement aligned with the document content
+
       Format your response as JSON:
       {
         "correlation": "string",
@@ -272,6 +327,7 @@ async function generateComparison(
       maxScore > 0 ? Math.round((totalScore / maxScore) * 1000) / 10 : 0;
 
     const response = await chain.invoke({
+      documentContent,
       qaPairs,
       gradingResults: JSON.stringify(gradingResults, null, 2),
       totalScore: totalScore.toString(),
@@ -340,7 +396,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { questions, answers } = body;
+    const { userId, testId, questions, answers } = body;
+
+    // Extract documentId from testId
+    const documentId = testId.replace("test_", "");
+
+    // Get document content for rubric-based grading
+    const documentStore = VectorStoreService.getDocumentStore(documentId);
+    if (!documentStore || !documentStore.originalContent) {
+      return NextResponse.json(
+        { error: "Document not found for grading" },
+        { status: 404 }
+      );
+    }
+    const documentContent = documentStore.originalContent;
 
     // Validate questions and answers arrays
     if (!Array.isArray(questions) || !Array.isArray(answers)) {
@@ -410,9 +479,10 @@ export async function POST(request: NextRequest) {
       }
 
       // Calculate score
-      const { score, maxScore, isCorrect } = calculateScore(
+      const { score, maxScore, isCorrect } = await calculateScore(
         question,
-        userAnswer
+        userAnswer,
+        documentContent
       );
 
       // Generate feedback
@@ -420,7 +490,8 @@ export async function POST(request: NextRequest) {
         question,
         userAnswer,
         score,
-        maxScore
+        maxScore,
+        documentContent
       );
 
       gradingResults.push({
@@ -450,7 +521,8 @@ export async function POST(request: NextRequest) {
     const comparison = await generateComparison(
       questions,
       answers,
-      gradingResults
+      gradingResults,
+      documentContent
     );
 
     // Return the response in the format expected by the frontend
