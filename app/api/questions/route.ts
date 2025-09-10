@@ -7,52 +7,9 @@ import { randomUUID } from "crypto";
 
 class QuestionGenerator {
   private static readonly questionPrompt = new PromptTemplate({
-    template: `
-You are a preparation question generator for a specific university module.
-
-Inputs you will receive:
-- The module title and description
-- A list of official Learning Outcomes
-- The Assessment Marking Scheme with weights
-
-{content}
-
-Your tasks:
-1. Carefully read the provided learning outcomes.
-2. Generate preparatory questions ONLY about the knowledge, skills, and concepts listed in those outcomes.
-   - Do not invent unrelated topics (stay within the module).
-   - Write questions that a lecturer could ask to test if students have achieved the outcome.
-3. Use a mix of formats: "yes-no", "multiple-choice-single", "multiple-choice-multi", "scale", "rating".
-   - Yes/No: "Do you know how to calculate NPV?"
-   - Multiple-choice: "Which financial ratio measures liquidity?"
-   - Scale/Rating: "Rate your confidence in applying SWOT to a case study."
-4. Assign weights:
-   - Use the marking scheme to distribute weights across outcomes.
-   - Higher-weighted assessment sections = higher-weighted questions.
-   - Example: if 'Analysis of Current Business' = 25% of grade, questions linked to that outcome should have higher weights (7–10).
-5. Group questions by learning outcome, and include the outcome title.
-
-Return JSON ONLY in this structure:
-
-{{
-  "categories": [
-    {{
-      "title": "Learning Outcome Title",
-      "questions": [
-        {{
-          "type": "yes-no" | "multiple-choice-single" | "multiple-choice-multi" | "scale" | "rating",
-          "question": string,
-          "options": string[] (optional),
-          "correctAnswer": string | string[] (optional),
-          "difficulty": "easy" | "medium" | "hard",
-          "weight": number
-        }}
-      ]
-    }}
-  ]
-}}
-`,
+    template: `You are an expert educator. Given an assignment brief: \${content}, produce a concise JSON object with an assessment name, description, groups with weights summing roughly to 100, and questions with type and weight.\n\nSTRICT TYPE RULES:\n- Each question.type MUST be one of exactly: "radio-options" | "checkboxes" | "yes/no" | "scaled" | "rating".\n- Use "yes/no" for strictly binary questions.\n- Use "radio-options" for single-choice among several options; include an "options" array.\n- Use "checkboxes" for multiple selection questions; include an "options" array.\n- Use "scaled" for numeric range questions; include "min" and "max" (dynamic).\n- Use "rating" for 1–5 star style questions (always 5 max).\n- Provide a MIX of question types across the assessment.\n- Generate a concise, professional assessment name (2-6 words) that reflects the assignment topic.\n\nOutput ONLY JSON (no markdown, no prose).`,
     inputVariables: ["content"],
+    templateFormat: "f-string",
   });
 
   // Generate questions
@@ -83,27 +40,36 @@ Return JSON ONLY in this structure:
       console.error("Raw response:", response);
 
       // fallback
-      result = { categories: [] };
+      result = { groups: [] };
     }
 
     // Ensure unique IDs for all questions
-    if (result.categories && Array.isArray(result.categories)) {
-      result.categories = result.categories.map((category: any) => ({
-        ...category,
-        questions: (category.questions || []).map((q: any) => ({
-          type: q.type,
-          question: q.question,
-          options: q.options || undefined,
-          correctAnswer: q.correctAnswer || undefined,
-          correctAnswers: q.correctAnswers || undefined,
-          difficulty: q.difficulty || "medium",
-          weight: q.weight || 5,
-          id: randomUUID(),
-        })),
+    if (result.groups && Array.isArray(result.groups)) {
+      result.groups = result.groups.map((group: any, index: number) => ({
+        ...group,
+        title: group.name || `Assessment Group ${index + 1}`,
+        questions: (group.questions || []).map((q: any) => {
+          let type = q.type;
+          if (type === "radio-options") type = "multiple-choice-single";
+          else if (type === "checkboxes") type = "multiple-choice-multi";
+          else if (type === "yes/no") type = "yes-no";
+          else if (type === "scaled") type = "scale";
+          // rating remains the same
+          return {
+            type,
+            question: q.question,
+            options: q.options || undefined,
+            correctAnswer: q.correctAnswer || undefined,
+            correctAnswers: q.correctAnswers || undefined,
+            difficulty: q.difficulty || "medium",
+            weight: q.weight || 5,
+            id: randomUUID(),
+          };
+        }),
       }));
     }
 
-    return result;
+    return { categories: result.groups };
   }
 }
 

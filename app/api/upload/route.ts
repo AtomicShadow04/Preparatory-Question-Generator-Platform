@@ -112,10 +112,28 @@ class VectorStoreServiceLocal {
         embeddings
       );
 
-      const documentStore: DocumentStore = {
-        id: documentId,
-        vectorStore,
+      // Extract chunks with embeddings for SQLite storage
+      const chunks = [];
+      for (let i = 0; i < documents.length; i++) {
+        const doc = documents[i];
+        // Get the embedding for this document
+        const embedding = await embeddings.embedQuery(doc.pageContent);
+
+        chunks.push({
+          text: doc.pageContent,
+          index: i,
+          embedding: embedding,
+          metadata: {
+            ...doc.metadata,
+            chunkIndex: i,
+          },
+        });
+      }
+
+      const documentStoreData = {
+        documentId,
         originalContent: documents.map((doc) => doc.pageContent).join("\n"),
+        chunks: chunks,
         metadata: {
           fileName,
           fileType,
@@ -125,8 +143,16 @@ class VectorStoreServiceLocal {
         },
       };
 
-      VectorStoreService.setDocumentStore(documentId, documentStore);
+      VectorStoreService.setDocumentStore(documentId, documentStoreData);
       console.log(`Vector store created and stored with ID: ${documentId}`);
+
+      // Return the original format for compatibility
+      const documentStore: DocumentStore = {
+        id: documentId,
+        vectorStore,
+        originalContent: documentStoreData.originalContent,
+        metadata: documentStoreData.metadata,
+      };
 
       return documentStore;
     } catch (error) {
